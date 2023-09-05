@@ -18,43 +18,44 @@ export class AuthService {
   public currentUser = computed( () => this._currentUser() );
   public authStatus = computed( () => this._authStatus() );
 
-  constructor() { }
+  constructor() {
+    this.checkAuthStatus().subscribe();
+  }
 
   login(email:string, password:string):Observable<boolean> {
     const url = `${this.baseUrl}/auth/login`;
     const body = { email, password};
     return this.http.post<LoginResponse>( url, body)
       .pipe(
-        tap( ({ user, token} ) => {
-          this.updateAuthenticationState(token, user, AuthStatus.authenticated);
-        }),
-        map( () => true ),
+        map( ({ user, token}) => this.setAuthentication(token, user) ),
         catchError( err => throwError( () => err.error.message ))
       );
   }
 
-  protected updateAuthenticationState( token:string, user: User | null, state: AuthStatus ) {
+  protected setAuthentication( token:string, user: User) {
     this._currentUser.set( user );
-    this._authStatus.set( state );
+    this._authStatus.set( AuthStatus.authenticated );
     localStorage.setItem('token', token);
+    return true;
+  }
+
+  public initializeAuthentication() {
+    this._currentUser.set( null );
+    this._authStatus.set( AuthStatus.notAuthenticated );
+    localStorage.removeItem('token');
+    return of(false);
   }
 
   checkAuthStatus():Observable<boolean> {
     const endPoint = `${this.baseUrl}/auth/check-token`;
     const token = localStorage.getItem('token');
-    if (!token) return of(false);
+    if (!token) return this.initializeAuthentication();
     const headers = new HttpHeaders().set('Authorization', `Bearer ${token}`);
 
     return this.http.get<CheckTokenResponse>(endPoint, {headers})
       .pipe(
-        map( ({token, user}) => {
-          this.updateAuthenticationState(token, user, AuthStatus.authenticated);
-          return true;
-        }),
-        catchError( () => {
-          this.updateAuthenticationState('', null, AuthStatus.notAuthenticated);
-          return of( false )
-        })
+        map( ({token, user}) => this.setAuthentication(token, user)),
+        catchError( () => this.initializeAuthentication())
       );
 
   }
